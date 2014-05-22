@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Wat googlen mensen in jouw gemeente?</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="">
+  <meta name="author" content="">
+	
+	<link href="css/bootstrap.min.css" rel="stylesheet">
+	<link href="css/style.css" rel="stylesheet">
+    <link href="css/typeahead.css" rel="stylesheet">
+    <link href="css/bootflat.css" rel="stylesheet">
+    <link href="css/bootflat-square.css" rel="stylesheet">
+    <link href="css/font-awesome.min.css" rel="stylesheet" media="screen">
+  
+	<script type="text/javascript" src="js/jquery.min.js"></script>
+	<script type="text/javascript" src="js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="js/d3.min.js"></script>
+    <script type="text/javascript" src="js/crossfilter.min.js"></script>
+    <script type="text/javascript" src="js/typeahead.min.js"></script>
+</head>
+
+<body>
+<div class="container">
+    <div class="row clearfix">
+		<div class="col-md-12 column">
+		</div>
+	</div>
+	<div class="row clearfix">
+		<div class="col-md-12 column">
+            <div class="page-header">
+				<h1>
+					Wat denkt Google over uw gemeente?
+				</h1>
+				<h2>
+					<small>Zoek het uit met deze interactieve kaart!</small>
+				</h2>
+            </div>
+		</div>
+	</div>
+	<div class="row clearfix">
+		<div class="col-md-12 column">
+            <form role="form">
+				<div class="form-group">
+					 <input id="typeahead1" class="form-control-square typeahead" placeholder="Zoek je gemeente"/>
+                     <input id="typeahead2" class="form-control-square typeahead" placeholder="Zoekterm"/>
+				</div>
+			</form>
+			<h2 id="titel" style="text-align: center;"></h2>
+            <div id="mapcontainer"></div>
+			<div id="filterbuttons"></div>
+            <div id="buttoncontainer"><br /><div class="page-header"><h2>De top 50 Googlesuggesties voor de Vlaamse gemeenten</h2></div>
+			</div>
+        </div>
+	</div>
+    
+	<div class="row clearfix">
+		<div class="col-md-12 column">
+		</div>
+	</div>
+</div>
+<script>
+		$("#suggestiesvoor").hide();
+		$("#issuggestievoor").hide();
+		
+    
+        //Fill table
+                $.getJSON('https://free-ec2.scraperwiki.com/cbrfhdy/f35f1b26a73f41a/sql/?q=select%20%0A%09gemeente%2C%20keyword%2C%20key%2C%20rank%0Afrom%20swdata%0A--%20where%20gemeente%20%3E%20%0Aorder%20by%20gemeente', function(data) {
+                
+                var gsuggest = crossfilter(data);
+                var keywordDimension = gsuggest.dimension(function(d) { return d.keyword; });
+                var gemeenteDimension = gsuggest.dimension(function(d) { return d.gemeente; });
+                
+                //List of suggestions for typeahead autocomplete
+                var allsuggestions = keywordDimension.group().top(Infinity);
+                var arrsuggest = [];
+                for (i = 0; i<= allsuggestions.length-1; i++) {
+                    arrsuggest[i] = allsuggestions[i].key;
+                };
+                //List of gemeenten for typeahead autocomplete
+                var allgemeenten = gemeenteDimension.group().top(Infinity);
+                var arrgemeenten = [];
+                for (i = 0; i<= allgemeenten.length-1; i++) {
+                    arrgemeenten[i] = allgemeenten[i].key;
+                };
+                
+                //top50 most popular tags for buttons
+                var topsuggestions = keywordDimension.group().reduceCount();
+                var top50suggestions = topsuggestions.top(50);
+                
+                for (i = 0; i<= 49; i++) {
+                    var badge = " <span class='badge badge-warning badge-square'>" + top50suggestions[i].value + "</span>";
+                    $( "<button class='btn btn-square btn-danger'></button>" )
+                        .html(top50suggestions[i].key + badge)
+                        .attr("onclick", "colormap('"+ top50suggestions[i].key + "')")
+                        .appendTo("#buttoncontainer");
+                };
+                
+                //Generate map
+        var canvas = d3.select("#mapcontainer").append("svg");
+        var tooltip = d3.select("#mapcontainer").append("div").attr("class", "tooltip hidden");
+
+		d3.select('#mapcontainer').style('width', '100%').style('height', '300px');
+    
+        d3.json("refgem.json", function (mapdata) {
+            var group = canvas.selectAll("g")
+                .data(mapdata.features)
+                .enter()
+                .append("g");
+            
+            var projection = d3.geo.mercator().scale(11000).translate([-430,11600]);
+            var path = d3.geo.path().projection(projection);
+            
+            var areas = group.append("path")
+                .attr("d", path)
+                .attr("class", "area")
+            //regex replace for removing spaces in id's
+                .attr("id", function(d){return d.properties.NAAM.replace(/ /g,"_");})
+                .on("mousemove", function(d,i) {
+                    var mouse = d3.mouse(canvas.node()).map( function(d) { return parseInt(d); } );
+                    tooltip
+                        .classed("hidden", false)
+                        .attr("style", "left:"+(mouse[0]+30)+"px;top:"+(mouse[1]+80)+"px")
+                        .html(d.properties.NAAM)
+                    })
+                .on("mouseout",  function(d,i) {
+                    tooltip.classed("hidden", true)
+                })
+                .on("click", function(d,i) {
+					$('#filterbuttons').empty();
+                    $('#gemeentetable').hide();
+                    var clickedgemeente = d.properties.NAAM;
+                    $('#titel').text('Googlesuggesties voor ' + clickedgemeente).css('color', '#2986B9');
+                    d3.selectAll('.area').style('fill','#e2e2e2');
+                    d3.select('path#' + clickedgemeente.replace(/ /g,"_")).style('fill', '#2986B9');
+                    gemeenteDimension.filterAll();
+                    keywordDimension.filterAll();
+                    var gemeenteFilter = gemeenteDimension.filter(clickedgemeente);
+					
+					var keywords = gemeenteFilter.top(10);
+					
+					for (i = 0; i<= 9; i++) {
+                    $( "<button class='btn btn-square btn-primary'></button>" )
+                        .html(keywords[i].keyword)
+                        .attr("onclick", "colormap('"+ keywords[i].keyword + "')")
+                        .appendTo("#filterbuttons");
+                	};
+                });
+        });    
+                    
+                //color map by keyword
+                colormap = function colormap(zoekterm) {
+                    $('#filterbuttons').empty();
+					d3.selectAll('.area').style('fill','#e2e2e2');
+                    $('#suggestiestable').hide();
+                    $('#titel').text("'" + zoekterm + "' is een Googlesuggestie voor").css('color', '#C0392B');
+                    //$('#titel').text(zoekterm).css('color', '#C0392B');
+                    gemeenteDimension.filterAll();
+                    keywordDimension.filterAll();
+                    var keywordFilter = keywordDimension.filter(zoekterm);
+                    var filteredgemeenten = keywordFilter.top(Infinity);
+                    
+					//buttons for gemeenten with keyword
+					for (i = 0; i<= filteredgemeenten.length-1; i++) {
+					var gemeente = filteredgemeenten[i].gemeente;
+                    $( "<button class='btn btn-square btn-danger'></button>" )
+						.html(gemeente)
+                        .attr("onclick", "clickgemeente('"+ filteredgemeenten[i].gemeente + "')")
+                        .appendTo("#filterbuttons");
+                	};
+                                  
+                    //color filtered gemeenten on map
+                    for (var record in filteredgemeenten) {
+                    if (filteredgemeenten.hasOwnProperty(record)) {
+                        d3.select('path#' + filteredgemeenten[record].gemeente.replace(/ /g,"_")).style('fill', '#C0392B');
+                        };
+                    };
+                };
+                    
+                //function for clicking on gemeentenaam
+                clickgemeente = function clickgemeente(gemeentenaam) {
+					$('#filterbuttons').empty();
+                    $('#gemeentetable').hide();
+                    $('#titel').text("Googlesuggesties voor " + gemeentenaam).css('color', '#2986B9');
+                    d3.selectAll('.area').style('fill','#e2e2e2');
+                    d3.select('path#' + gemeentenaam.replace(/ /g,"_")).style('fill', '#2986B9');
+                    gemeenteDimension.filterAll();
+                    keywordDimension.filterAll();
+                    var gemeenteFilter = gemeenteDimension.filter(gemeentenaam);
+					//changes from here
+					var keywords = gemeenteFilter.top(10);
+					
+					for (i = 0; i<= 9; i++) {
+                    $( "<button class='btn btn-square btn-primary'></button>" )
+                        .html(keywords[i].keyword)
+                        .attr("onclick", "colormap('"+ keywords[i].keyword + "')")
+                        .appendTo("#filterbuttons");
+                	};
+                };
+                    
+                //Search autocomplete gemeenten
+                $('#typeahead1').typeahead({                                
+                    name: 'gemeenten',                                                          
+                    local: arrgemeenten,                                         
+                    limit: 10                                                                   
+                    });
+                
+                $('input#typeahead1').on('typeahead:selected', function (object, datum) {
+                        clickgemeente(datum.value);
+                        $('#typeahead1').typeahead('setQuery','');
+                    });
+                
+                //Search autocomplete suggestions
+                $('#typeahead2').typeahead({                                
+                    name: 'suggesties',                                                          
+                    local: arrsuggest,                                         
+                    limit: 20                                                                   
+                    });
+                
+                $('input#typeahead2').on('typeahead:selected', function (object, datum) {
+                        colormap(datum.value);
+                        $('#typeahead2').typeahead('setQuery','');
+                    });
+                
+    });
+                     
+</script>
+</body>
+</html>
